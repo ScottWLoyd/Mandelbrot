@@ -185,7 +185,10 @@ void render(double x_min, double y_min, double x_max, double y_max) {
                 hue += (float)histogram[i] / (float)total;
             }
             
-            Color color = map_color(hue);
+            Color color1 = map_color(hue - 1.0f/total);
+            Color color2 = map_color(hue + 1.0f/total);
+            Color color;
+            color.v = LERP(hue, color1.v, color2.v);
             
             SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 0xFF);
             SDL_RenderDrawPoint(renderer, x, y);
@@ -298,8 +301,8 @@ int main(int argc, char** argv) {
         }
         
         if (zooming) {
-            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_MOD);
-            SDL_SetRenderDrawColor(renderer, 0, 0x7F, 0xFF, 0xFF);
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+            SDL_SetRenderDrawColor(renderer, 0, 0x7F, 0xFF, 0x7F);
             SDL_Rect rect;
             rect.x = (int)zoom_start_x;
             rect.y = (int)zoom_start_y;
