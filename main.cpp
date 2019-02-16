@@ -7,10 +7,11 @@
 #include "SDL.h"
 
 #define WIDTH 800
-#define HEIGHT 600
-#define MAX_ITERATION 1000
+#define HEIGHT 800
+#define MAX_ITERATION 256
 
 #define LERP(x, min, max) (((max)-(min))*(x)+(min))
+#define CLAMP(min, x, max) ((x)<(min)?(x)=(min):((x)>(max)?((x)=(max)):0))
 
 SDL_Renderer* renderer;
 unsigned short pixels[WIDTH*HEIGHT];
@@ -125,9 +126,7 @@ void render(double x_min, double y_min, double x_max, double y_max) {
                 for (int i=0; i<*pixel; i++) {
                     hue += (float)histogram[i] / (float)total;
                 }
-                if (hue > 1) {
-                    assert(0);
-                }
+                CLAMP(0, hue, 1);
                 color = palette[(int)(hue*NUM_COLORS)];
             }
             SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 0xFF);
@@ -140,6 +139,23 @@ void render(double x_min, double y_min, double x_max, double y_max) {
     
     long end = SDL_GetTicks();
     printf("Time=%fs\n", (float)(end - start) / 1000.0f);
+}
+
+void assure_aspect_ratio(double ratio, double* x_min, double* y_min,
+                         double* x_max, double* y_max) {
+    double w = *x_max - *x_min;
+    double h = *y_max - *y_min;
+    double curr = w/h;
+    double perc_diff = abs(curr-ratio)/ratio;
+    if (ratio > curr) {
+        double delta = w*perc_diff*0.5;
+        *x_min -= delta;
+        *x_max += delta;
+    } else if (ratio < curr) {
+        double delta = h*perc_diff*0.5;
+        *y_min -= delta;
+        *y_max += delta;
+    }
 }
 
 int main(int argc, char** argv) {
@@ -156,14 +172,13 @@ int main(int argc, char** argv) {
     renderer =  SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     
-    
-    // double zoom_ratio = 0.8;
-    // double target_x = -0.74967;
-    // double target_y = -0.07;
     double x_min = -2.5;
     double x_max = 1.0;
     double y_min = -1.1;
     double y_max = 1.1;
+    
+    double aspect = (double)WIDTH/(double)HEIGHT;
+    assure_aspect_ratio(aspect, &x_min, &y_min, &x_max, &y_max);
     
     render(x_min, y_min, x_max, y_max);
     
@@ -175,15 +190,8 @@ int main(int argc, char** argv) {
     
     bool running = true;
     while(running) {
+        
         SDL_PumpEvents();
-        
-        /*
-        x_min = LERP(zoom_ratio, x_min, target_x);
-        x_max = LERP(zoom_ratio, x_max, target_x);
-        y_min = LERP(zoom_ratio, y_min, target_y);
-        y_max = LERP(zoom_ratio, y_max, target_y);
-        */
-        
         SDL_Event event;
         while(SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -218,6 +226,9 @@ int main(int argc, char** argv) {
                     x_max = temp_x_max;
                     y_min = temp_y_min;
                     y_max = temp_y_max;
+                    
+                    double aspect = (double)WIDTH/(double)HEIGHT;
+                    assure_aspect_ratio(aspect, &x_min, &y_min, &x_max, &y_max);
                     
                     zooming = false;
                     
