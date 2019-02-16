@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <complex>
 #include <math.h>
+#include <assert.h>
 
 #define SDL_MAIN_HANDLED
 #include "SDL.h"
@@ -25,47 +26,52 @@ union Color {
     unsigned int v;
 };
 
-Color palette[] = {
-    {255,  0,   7, 100},
+#define RENDER_PALETTE 0
+#define NUM_GRADIENTS 6
+double breaks[NUM_GRADIENTS] = {
+    //0, 0.16, 0.42, 0.6425, 0.8575, 1,
+    0, 0.26, 0.42, 0.5425, 0.8575, 1,
+};
+
+Color gradient[NUM_GRADIENTS] = {
+    {255,  0,   7,  50},
     {255, 32, 107, 203},
     {255,237, 255, 255},
     {255,255, 170,   0},
     {255,  0,   2,   0},
     {255,  0,   7,  99}};
 
-Color map_color(double x) {
-    
-    Color result;
-    
-    Color c1;
-    Color c2;
-    if (0 <= x && x < 0.16) {
-        c1 = palette[0];
-        c2 = palette[1];
-    } else if (0.16 <= x && x < 0.42) {
-        c1 = palette[1];
-        c2 = palette[2];
-    } else if (0.42 <= x && x < 0.6425) {
-        c1 = palette[2];
-        c2 = palette[3];
-    } else if (0.6425 <= x && x < 0.8575) {
-        c1 = palette[3];
-        c2 = palette[4];
-    } else {
-        c1 = palette[4];
-        c2 = palette[5];
+#define NUM_COLORS 2048
+Color palette[NUM_COLORS];
+
+void init_palette() {
+    for (int i=0; i<NUM_COLORS; i++) {
+        double v = (double)i/(double)NUM_COLORS;
+        Color* c = palette + i;
+        
+        Color c1;
+        Color c2;
+        double v1;
+        for (int i=0; i<NUM_GRADIENTS-1; i++) {
+            if (breaks[i] <= v && v < breaks[i+1]) {
+                v1 = (v-breaks[i])/(breaks[i+1]-breaks[i]);
+                c1 = gradient[i];
+                c2 = gradient[i+1];
+            }
+        }
+        
+        c->r = LERP(v1, c1.r, c2.r);
+        c->g = LERP(v1, c1.g, c2.g);
+        c->b = LERP(v1, c1.b, c2.b);
+        c->a = 255;
     }
-    
-    result.r = LERP(x, c1.r, c2.r);
-    result.g = LERP(x, c1.g, c2.g);
-    result.b = LERP(x, c1.b, c2.b);
-    result.a = 255;
-    
-    return result;
 }
 
-
 void render(double x_min, double y_min, double x_max, double y_max) {
+    
+    static int scale = 256;
+    static int shift = 0;
+    static double ONE_OVER_LOG2 = 1.0 / log(2.0);
     
     long start = SDL_GetTicks();
     
@@ -119,8 +125,10 @@ void render(double x_min, double y_min, double x_max, double y_max) {
                 for (int i=0; i<*pixel; i++) {
                     hue += (float)histogram[i] / (float)total;
                 }
-                
-                color = map_color(hue);
+                if (hue > 1) {
+                    assert(0);
+                }
+                color = palette[(int)(hue*NUM_COLORS)];
             }
             SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 0xFF);
             SDL_RenderDrawPoint(renderer, x, y);
@@ -128,7 +136,6 @@ void render(double x_min, double y_min, double x_max, double y_max) {
             pixel++;
         }
     }
-    
     SDL_RenderPresent(renderer);
     
     long end = SDL_GetTicks();
@@ -138,6 +145,8 @@ void render(double x_min, double y_min, double x_max, double y_max) {
 int main(int argc, char** argv) {
     
     SDL_Init(SDL_INIT_VIDEO);
+    
+    init_palette();
     
     SDL_Window* window = SDL_CreateWindow("Mandelbrot",
                                           SDL_WINDOWPOS_UNDEFINED,
@@ -234,6 +243,22 @@ int main(int argc, char** argv) {
                 } break;
             }
         }
+        
+#if RENDER_PALETTE
+        Color* p = palette;
+        int x_reset=0;
+        int y_offset=0;
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+        for (int i=0; i<NUM_COLORS; i++) {
+            SDL_SetRenderDrawColor(renderer, p->r, p->g, p->b, 0xFF);
+            if (i % WIDTH == 0) {
+                y_offset += 50;
+            }
+            SDL_RenderDrawLine(renderer, i%WIDTH, y_offset, i%WIDTH, y_offset+50);
+            p++;
+        }
+        SDL_RenderPresent(renderer);
+#endif
         
         if (zooming) {
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
