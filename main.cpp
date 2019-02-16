@@ -7,12 +7,12 @@
 
 #define WIDTH 800
 #define HEIGHT 600
-#define MAX_ITERATION 255
+#define MAX_ITERATION 1000
 
 #define LERP(x, min, max) (((max)-(min))*(x)+(min))
 
 SDL_Renderer* renderer;
-unsigned char pixels[WIDTH*HEIGHT];
+unsigned short pixels[WIDTH*HEIGHT];
 unsigned char histogram[MAX_ITERATION];
 
 union Color {
@@ -25,116 +25,46 @@ union Color {
     unsigned int v;
 };
 
-Color palette[MAX_ITERATION];
+Color palette[] = {
+    {255,  0,   7, 100},
+    {255, 32, 107, 203},
+    {255,237, 255, 255},
+    {255,255, 170,   0},
+    {255,  0,   2,   0},
+    {255,  0,   7,  99}};
 
-Color map_color(float x) {
+Color map_color(double x) {
+    
     Color result;
-    result.v = (x) * 0xFFFFFF;
+    
+    Color c1;
+    Color c2;
+    if (0 <= x && x < 0.16) {
+        c1 = palette[0];
+        c2 = palette[1];
+    } else if (0.16 <= x && x < 0.42) {
+        c1 = palette[1];
+        c2 = palette[2];
+    } else if (0.42 <= x && x < 0.6425) {
+        c1 = palette[2];
+        c2 = palette[3];
+    } else if (0.6425 <= x && x < 0.8575) {
+        c1 = palette[3];
+        c2 = palette[4];
+    } else {
+        c1 = palette[4];
+        c2 = palette[5];
+    }
+    
+    result.r = LERP(x, c1.r, c2.r);
+    result.g = LERP(x, c1.g, c2.g);
+    result.b = LERP(x, c1.b, c2.b);
+    result.a = 255;
+    
     return result;
 }
 
-void init_palette() {
-    for (int i=0; i<MAX_ITERATION; i++) {
-        palette[i].r = 0;
-        palette[i].g = 255 - abs(300 - i);
-        if (palette[i].g < 0) {
-            palette[i].g = 0;
-        }
-        palette[i].b = 255 - abs(700 - i);
-        if (palette[i].b < 0) {
-            palette[i].b = 0;
-        }
-    }
-}
 
-#if 0
-void render(double x_min, double y_min, double x_max, double y_max) {
-    
-    long start = SDL_GetTicks();
-    
-    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 1);
-    SDL_RenderClear(renderer);
-    
-    for (int py=0; py<HEIGHT; py++) {
-        for (int px=0; px<WIDTH; px++) {
-            double tx = (double)px/(double)WIDTH;
-            double ty = (double)py/(double)HEIGHT;
-            double x0 = LERP(tx, x_min, x_max);
-            double y0 = LERP(ty, y_min, y_max);
-            double x = 0.0;
-            double y = 0.0;
-            int iteration = 0;
-            int max_iteration = 1000;
-            while (x*x + y*y <= 256 && iteration < max_iteration) {
-                double x_temp = x*x - y*y + x0;
-                y = 2.0*x*y + y0;
-                x = x_temp;
-                iteration++;
-            }
-            
-            double iter = iteration;
-            if ( iteration < max_iteration ) {
-                // sqrt of inner term removed using log simplification rules.
-                double log_zn = log( x*x + y*y ) / 2.0;
-                double log_2 = log(2.0);
-                double nu = log( log_zn / log_2 ) / log_2;
-                // Rearranging the potential function.
-                // Dividing log_zn by log(2) instead of log(N = 1<<8)
-                // because we want the entire palette to range from the
-                // center to radius 2, NOT our bailout radius.
-                iter = iter + 1.0 - nu;
-            }
-            Color color1 = palette[(int)floor(iter)];
-            Color color2 = palette[(int)floor(iter) + 1];
-            // iteration % 1 = fractional part of iteration.
-            Color color;
-            color.v = LERP(iter - floor(iter), color1.v, color2.v);
-            SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 0xFF);
-            SDL_RenderDrawPoint(renderer, px, py);
-        }
-    }
-    SDL_RenderPresent(renderer);
-    
-    long end = SDL_GetTicks();
-    printf("Time=%fs\n", (float)(end - start) / 1000.0f);
-    
-    /*
-    For each pixel (Px, Py) on the screen, do:
-    {
-        x0 = scaled x coordinate of pixel (scaled to lie in the Mandelbrot X scale (-2.5, 1))
-            y0 = scaled y coordinate of pixel (scaled to lie in the Mandelbrot Y scale (-1, 1))
-            x = 0.0
-            y = 0.0
-            iteration = 0
-            max_iteration = 1000
-            // Here N=2^8 is chosen as a reasonable bailout radius.
-            while ( x*x + y*y <= (1 << 16)  AND  iteration < max_iteration ) {
-            xtemp = x*x - y*y + x0
-                y = 2*x*y + y0
-                x = xtemp
-                iteration = iteration + 1
-        }
-        // Used to avoid floating point issues with points inside the set.
-        if ( iteration < max_iteration ) {
-            // sqrt of inner term removed using log simplification rules.
-            log_zn = log( x*x + y*y ) / 2
-                nu = log( log_zn / log(2) ) / log(2)
-                // Rearranging the potential function.
-                // Dividing log_zn by log(2) instead of log(N = 1<<8)
-                // because we want the entire palette to range from the
-                // center to radius 2, NOT our bailout radius.
-                iteration = iteration + 1 - nu
-        }
-        color1 = palette[floor(iteration)]
-            color2 = palette[floor(iteration) + 1]
-            // iteration % 1 = fractional part of iteration.
-            color = linear_interpolate(color1, color2, iteration % 1)
-            plot(Px, Py, color)
-    }
-    */
-}
-#else
 void render(double x_min, double y_min, double x_max, double y_max) {
     
     long start = SDL_GetTicks();
@@ -149,7 +79,7 @@ void render(double x_min, double y_min, double x_max, double y_max) {
     
     printf("Calculating x=(%f, %f), y=(%f, %f)\n", 
            x_min, x_max, y_min, y_max);
-    unsigned char* pixel = pixels;
+    unsigned short* pixel = pixels;
     for (int y=0; y<HEIGHT; y++) {
         for (int x=0; x<WIDTH; x++) {
             double px = (double)x / (double)WIDTH;
@@ -180,16 +110,18 @@ void render(double x_min, double y_min, double x_max, double y_max) {
     pixel = pixels;
     for (int y=0; y<HEIGHT; y++) {
         for (int x=0; x<WIDTH; x++) {
-            float hue = 0.0f;
-            for (int i=0; i<*pixel; i++) {
-                hue += (float)histogram[i] / (float)total;
-            }
-            
-            Color color1 = map_color(hue - 1.0f/total);
-            Color color2 = map_color(hue + 1.0f/total);
             Color color;
-            color.v = LERP(hue, color1.v, color2.v);
-            
+            if (*pixel == MAX_ITERATION) {
+                color.v = 0x000000FF;
+            } else {
+                
+                float hue = 0.0f;
+                for (int i=0; i<*pixel; i++) {
+                    hue += (float)histogram[i] / (float)total;
+                }
+                
+                color = map_color(hue);
+            }
             SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 0xFF);
             SDL_RenderDrawPoint(renderer, x, y);
             
@@ -202,13 +134,10 @@ void render(double x_min, double y_min, double x_max, double y_max) {
     long end = SDL_GetTicks();
     printf("Time=%fs\n", (float)(end - start) / 1000.0f);
 }
-#endif
 
 int main(int argc, char** argv) {
     
     SDL_Init(SDL_INIT_VIDEO);
-    
-    init_palette();
     
     SDL_Window* window = SDL_CreateWindow("Mandelbrot",
                                           SDL_WINDOWPOS_UNDEFINED,
@@ -271,10 +200,16 @@ int main(int argc, char** argv) {
                     double px_end = (double)zoom_end_x/(double)WIDTH;
                     double py_start = (double)zoom_start_y/(double)HEIGHT;
                     double py_end = (double)zoom_end_y/(double)HEIGHT;
-                    x_min = LERP(px_start, x_min, x_max);
-                    x_max = LERP(px_end, x_min, x_max);
-                    y_min = LERP(py_start, y_min, y_max);
-                    y_max = LERP(py_end, y_min, y_max);
+                    double temp_x_min = LERP(px_start, x_min, x_max);
+                    double temp_x_max = LERP(px_end, x_min, x_max);
+                    double temp_y_min = LERP(py_start, y_min, y_max);
+                    double temp_y_max = LERP(py_end, y_min, y_max);
+                    
+                    x_min = temp_x_min;
+                    x_max = temp_x_max;
+                    y_min = temp_y_min;
+                    y_max = temp_y_max;
+                    
                     zooming = false;
                     
                     render(x_min, y_min, x_max, y_max);
