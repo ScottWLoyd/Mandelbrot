@@ -14,6 +14,7 @@
 #define CLAMP(min, x, max) ((x)<(min)?(x)=(min):((x)>(max)?((x)=(max)):0))
 
 SDL_Renderer* renderer;
+SDL_Texture* main_texture;
 unsigned short pixels[WIDTH*HEIGHT];
 unsigned char histogram[MAX_ITERATION];
 
@@ -27,7 +28,6 @@ union Color {
     unsigned int v;
 };
 
-#define RENDER_PALETTE 0
 #define NUM_GRADIENTS 6
 double breaks[NUM_GRADIENTS] = {
     //0, 0.16, 0.42, 0.6425, 0.8575, 1,
@@ -44,6 +44,7 @@ Color gradient[NUM_GRADIENTS] = {
 
 #define NUM_COLORS 2048
 Color palette[NUM_COLORS];
+bool render_palette;
 
 void init_palette() {
     for (int i=0; i<NUM_COLORS; i++) {
@@ -76,6 +77,7 @@ void render(double x_min, double y_min, double x_max, double y_max) {
     
     long start = SDL_GetTicks();
     
+    SDL_SetRenderTarget(renderer, main_texture);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 1);
     SDL_RenderClear(renderer);
@@ -171,6 +173,10 @@ int main(int argc, char** argv) {
                                           SDL_WINDOW_SHOWN);
     renderer =  SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    main_texture = SDL_CreateTexture(renderer, 
+                                     SDL_PIXELFORMAT_RGBA8888, 
+                                     SDL_TEXTUREACCESS_TARGET, 
+                                     WIDTH, HEIGHT);
     
     double x_min = -2.5;
     double x_max = 1.0;
@@ -182,12 +188,13 @@ int main(int argc, char** argv) {
     
     render(x_min, y_min, x_max, y_max);
     
-    bool zooming = false;
     int zoom_start_x;
     int zoom_start_y;
     int zoom_end_x;
     int zoom_end_y;
     
+    render_palette = false;
+    bool zooming = false;
     bool running = true;
     while(running) {
         
@@ -255,21 +262,23 @@ int main(int argc, char** argv) {
             }
         }
         
-#if RENDER_PALETTE
-        Color* p = palette;
-        int x_reset=0;
-        int y_offset=0;
-        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
-        for (int i=0; i<NUM_COLORS; i++) {
-            SDL_SetRenderDrawColor(renderer, p->r, p->g, p->b, 0xFF);
-            if (i % WIDTH == 0) {
-                y_offset += 50;
+        SDL_SetRenderTarget(renderer, 0);
+        SDL_RenderCopy(renderer, main_texture, 0, 0);
+        
+        if (render_palette) {
+            Color* p = palette;
+            int x_reset=0;
+            int y_offset=0;
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+            for (int i=0; i<NUM_COLORS; i++) {
+                SDL_SetRenderDrawColor(renderer, p->r, p->g, p->b, 0xFF);
+                if (i % WIDTH == 0) {
+                    y_offset += 50;
+                }
+                SDL_RenderDrawLine(renderer, i%WIDTH, y_offset, i%WIDTH, y_offset+50);
+                p++;
             }
-            SDL_RenderDrawLine(renderer, i%WIDTH, y_offset, i%WIDTH, y_offset+50);
-            p++;
         }
-        SDL_RenderPresent(renderer);
-#endif
         
         if (zooming) {
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
@@ -280,8 +289,9 @@ int main(int argc, char** argv) {
             rect.w = (int)(zoom_end_x-zoom_start_x);
             rect.h = (int)(zoom_end_y-zoom_start_y);
             SDL_RenderFillRect(renderer, &rect);
-            SDL_RenderPresent(renderer);
         }
+        
+        SDL_RenderPresent(renderer);
         
     }
     return 0;
