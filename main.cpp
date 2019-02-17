@@ -6,9 +6,14 @@
 #define SDL_MAIN_HANDLED
 #include "SDL.h"
 
-#define WIDTH 800
-#define HEIGHT 800
-#define MAX_ITERATION 256
+///////////////////////////////////////////////////////////////////////////////
+// Configuration parameters
+//
+#define WIDTH 1920
+#define HEIGHT 1080
+#define MAX_ITERATION 10000
+#define NUM_THREADS 28
+///////////////////////////////////////////////////////////////////////////////
 
 #define LERP(x, min, max) (((max)-(min))*(x)+(min))
 #define CLAMP(min, x, max) ((x)<(min)?(x)=(min):((x)>(max)?((x)=(max)):0))
@@ -16,7 +21,9 @@
 SDL_Renderer* renderer;
 SDL_Texture* main_texture;
 unsigned short pixels[WIDTH*HEIGHT];
-unsigned char histogram[MAX_ITERATION];
+// NOTE(scott): we need the +1 here since we will be at
+// MAX_ITERATION for points in the set
+unsigned char histogram[MAX_ITERATION+1];
 
 union Color {
     struct {
@@ -69,37 +76,33 @@ void init_palette() {
     }
 }
 
-void render(double x_min, double y_min, double x_max, double y_max) {
+struct ChunkData {
+    int x_start;
+    int y_start;
+    int x_end;
+    int y_end;
     
-    static int scale = 256;
-    static int shift = 0;
-    static double ONE_OVER_LOG2 = 1.0 / log(2.0);
+    double x_min;
+    double y_min;
+    double x_max;
+    double y_max;
+};
+
+int render_chunk(void* data) {
     
-    long start = SDL_GetTicks();
-    
-    SDL_SetRenderTarget(renderer, main_texture);
-    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 1);
-    SDL_RenderClear(renderer);
-    
-    for (int i=0; i<MAX_ITERATION; i++) {
-        histogram[i] = 0;
-    }
-    
-    printf("Calculating x=(%f, %f), y=(%f, %f)\n", 
-           x_min, x_max, y_min, y_max);
-    unsigned short* pixel = pixels;
-    for (int y=0; y<HEIGHT; y++) {
-        for (int x=0; x<WIDTH; x++) {
+    ChunkData* chunk = (ChunkData*)data;
+    unsigned short* pixel = pixels + (chunk->y_start*WIDTH + chunk->x_start);
+    for (int y=chunk->y_start; y<chunk->y_end; y++) {
+        for (int x=chunk->x_start; x<chunk->x_end; x++) {
             double px = (double)x / (double)WIDTH;
             double py = (double)y / (double)HEIGHT;
-            std::complex<double> c(LERP(px, x_min, x_max), LERP(py, y_min, y_max));
+            std::complex<double> c(LERP(px, chunk->x_min, chunk->x_max), LERP(py, chunk->y_min, chunk->y_max));
             std::complex<double> z(0.0, 0.0);
             
             int iteration = 0;
             while(iteration < MAX_ITERATION) {
                 z = z * z + c;
-                if (abs(z) > 2) {
+                if (z.real()*z.real() + z.imag() + z.imag() > 4) {
                     break;
                 }
                 iteration++;
@@ -109,6 +112,45 @@ void render(double x_min, double y_min, double x_max, double y_max) {
             *pixel++ = iteration;
         }
     }
+    return 0;
+}
+
+void render(double x_min, double y_min, double x_max, double y_max) {
+    
+    static int scale = 256;
+    static int shift = 0;
+    static double ONE_OVER_LOG2 = 1.0 / log(2.0);
+    
+    long start = SDL_GetTicks();
+    
+    for (int i=0; i<MAX_ITERATION; i++) {
+        histogram[i] = 0;
+    }
+    
+    SDL_Thread* threads[NUM_THREADS];
+    ChunkData thread_data[NUM_THREADS];
+    for (int i=0; i<NUM_THREADS; i++) {
+        ChunkData* chunk = thread_data + i;
+        chunk->x_start = 0;
+        chunk->y_start = i*(HEIGHT/NUM_THREADS);
+        chunk->x_end = WIDTH;
+        chunk->y_end = (i+1)*(HEIGHT/NUM_THREADS);
+        chunk->x_min = x_min;
+        chunk->x_max = x_max;
+        chunk->y_min = y_min;
+        chunk->y_max = y_max;
+        
+        threads[i] = SDL_CreateThread(render_chunk, "render thread", (void*)chunk);
+        if (!threads[i]) {
+            printf("failed to create thread!\n");
+            assert(0);
+        }
+    }
+    
+    for (int i=0; i<NUM_THREADS; i++) {
+        SDL_WaitThread(threads[i], 0);
+    }
+    
     
     // Compute normalized colors
     int total = 0;
@@ -116,7 +158,12 @@ void render(double x_min, double y_min, double x_max, double y_max) {
         total += histogram[i];
     }
     
-    pixel = pixels;
+    SDL_SetRenderTarget(renderer, main_texture);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 1);
+    SDL_RenderClear(renderer);
+    
+    unsigned short* pixel = pixels;
     for (int y=0; y<HEIGHT; y++) {
         for (int x=0; x<WIDTH; x++) {
             Color color;
@@ -131,13 +178,13 @@ void render(double x_min, double y_min, double x_max, double y_max) {
                 CLAMP(0, hue, 1);
                 color = palette[(int)(hue*NUM_COLORS)];
             }
+            
             SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 0xFF);
             SDL_RenderDrawPoint(renderer, x, y);
             
             pixel++;
         }
     }
-    SDL_RenderPresent(renderer);
     
     long end = SDL_GetTicks();
     printf("Time=%fs\n", (float)(end - start) / 1000.0f);
@@ -148,7 +195,10 @@ void assure_aspect_ratio(double ratio, double* x_min, double* y_min,
     double w = *x_max - *x_min;
     double h = *y_max - *y_min;
     double curr = w/h;
-    double perc_diff = abs(curr-ratio)/ratio;
+    double perc_diff = curr-ratio/ratio;
+    if (perc_diff < 0) {
+        perc_diff = -perc_diff;
+    }
     if (ratio > curr) {
         double delta = w*perc_diff*0.5;
         *x_min -= delta;
